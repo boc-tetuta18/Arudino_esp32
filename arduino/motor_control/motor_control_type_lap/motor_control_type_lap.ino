@@ -6,34 +6,36 @@
 #undef   ESP32
 #include <ros.h> //ESP32 USB serial mode
 #define  ESP32
-#include <std_msgs/Int16.h>
+#include <docking_robot/Motor>
 
 /* ==== User setting ==== */
 //motor driver property
 #define PWM_FREQUENCY  3000     //PWM pulse frequency
 #define PWM_RESOLUTION 10       //Duty ratio resolution, 10bit (0~1023)
-#define PWM_duty_limit_under 10 //[%] Lower limit of PWM duty ratio
-#define PWM_duty_limit_upper 90 //[%] Upper limit of PWM duty ratio
 
 //ESP32 pin number setting
-#define PWM_PIN      17         //pin number connect with PWM input channel
-#define MOTOR_EN_PIN 18         //pin number connect with enable channel (option)
+#define PWM_PIN_A      17         //pin number connect with PWM input channel
+#define PWM_PIN_B	X
+#define PWM_DIR_A1	X
+#define PWM_DIR_A2	X
+#define PWM_DIR_B1	X
+#define PWM_DIR_B2	X
+
 /* ======================== */
 
 #define MOTOR_0 0           //PWM channel
-int motor_cmd = 0;          // motor command speed, specified as an integer value from -100 to 100.
-int pwm_cmd   = 0;         
-int PWM_duty_range = (pow( 2, PWM_RESOLUTION )-1) * (PWM_duty_limit_under + (100-PWM_duty_limit_upper)) * 0.005;
+int motor_cmd[2] = {0,0};          // motor command speed, specified as an integer value from -100 to 
 
 //ros setting
 ros::NodeHandle nh;
 
-void messageCb( const std_msgs::Int16& ctrl_msg ){
-  motor_cmd = ctrl_msg.data/100.0;
+void messageCb( const docking_robot::Motor& ctrl_msg ){
+  motor_cmd[0] = ctrl_msg.motor_1;
+  motor_cmd[1] = ctrl_msg.motor_2;
 }
 
 //subscriber
-  ros::Subscriber<std_msgs::Int16> sub( "motor_ctrl", &messageCb );
+  ros::Subscriber<docking_robot::Motor> sub( "cmd_pwm", &messageCb );
 
 void setup() {
   //ros mode
@@ -43,31 +45,41 @@ void setup() {
   //nh.advertise(pub);
 
   //pin setting
-  pinMode( MOTOR_EN_PIN, OUTPUT );
+  pinMode( PWM_DIR_A1, OUTPUT );
+  pinMode( PWM_DIR_A2, OUTPUT );
+  pinMode( PWM_DIR_B1, OUTPUT );
+  pinMode( PWM_DIR_B2, OUTPUT );
 
   //pwm setting
-  ledcSetup( MOTOR_0, PWM_FREQUENCY, PWM_RESOLUTION );
-  ledcAttachPin( PWM_PIN, MOTOR_0 );
+  ledcSetup( MOTOR_A, PWM_FREQUENCY, PWM_RESOLUTION );
+  ledcSetup( MOTOR_B, PWM_FREQUENCY, PWM_RESOLUTION );
+  ledcAttachPin( PWM_PIN_A, MOTOR_A );
+  ledcAttachPin( PWM_PIN_B, MOTOR_B );
   
-  //desable ESCON (safety)
-  digitalWrite( MOTOR_EN_PIN, LOW );
-
-  PWM_duty_limit_under = pow( 2, PWM_RESOLUTION ) * PWM_duty_limit_under * 0.01;
-  PWM_duty_limit_upper = pow( 2, PWM_RESOLUTION ) * PWM_duty_limit_upper * 0.01;
 }
 
 void loop() {
   if ( nh.connected() ){
     //convert motor command to duty ratio
-    pwm_cmd = constrain( motor_cmd * PWM_duty_range, PWM_duty_limit_under, PWM_duty_limit_upper );
-
-    digitalWrite( MOTOR_EN_PIN, HIGH );
-    ledcWrite( MOTOR_0, 511 + pwm_cmd );    
+    //motor A
+    if(motor_cmd[0]<0){
+	//ccw
+	digitalWrite( PWM_DIR_A1, HIGH );
+	digitalWrite( PWM_DIR_A2, LOW );
+        ledcWrite( MOTOR_0, abs(motor_cmd) );
+    }else{
+	//cw
+	digitalWrite( PWM_DIR_A1, LOW );
+	digitalWrite( PWM_DIR_A2, HIGH );
+        ledcWrite( MOTOR_0, abs(motor_cmd) );
+    }
 
   }else{
-    pwm_cmd = 511;
-    digitalWrite( MOTOR_EN_PIN, LOW );
-    ledcWrite( MOTOR_0, 511 );
+    //safety motor drivre off
+    digitalWrite( PWM_DIR_A1, LOW );
+    digitalWrite( PWM_DIR_A2, LOW );
+    digitalWrite( PWM_DIR_B1, LOW );
+    digitalWrite( PWM_DIR_B2, LOW );
   }
 
   nh.spinOnce();
